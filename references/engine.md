@@ -125,6 +125,11 @@ repeat-this-video toggle; clickable step diamonds; tab strip; Space and arrow
 keys (ignored on the read tab); typewriter title; `#read` / `#watch` deep
 links; reduced-motion still frames; hex rain paused under reduced motion.
 
+`window.explainer` is the control API that `scripts/check.py` and any browser
+tool can use: `videos` (tabs, durations, step starts and labels), `pause()`,
+`seek(videoIndex, seconds)` (pauses, switches to the watch tab, renders that
+frame) and `view('watch' | 'read')`. Keep it when you edit the engine.
+
 ## 8. Theming and images
 
 All colours are tokens on `:root`. The example is single-theme dark on purpose
@@ -135,8 +140,8 @@ failures.
 
 For a real product, put its photo on the stage instead of a drawn shape:
 `<image href="__IMG:device__" x="78" y="48" width="84" height="125"/>`, then
-build with `--img device=photo.png`. Artifacts block external image hosts, so
-images must be embedded.
+build with `--img device=photo.png`. Many hosts (chat artifacts, sandboxed
+previews) block external images, so embed them.
 
 ## 9. Pitfalls already hit
 
@@ -147,5 +152,5 @@ images must be embedded.
   them at the top (y = 30) or bottom (y = 322) bands.
 - **Too fast.** First drafts run too quickly to follow. Hold 0.4-0.8 s at every
   stop and give each step at least about 1.5 s.
-- **Local preview.** The browser pane cannot screenshot `file://`; serve the
-  folder with `python3 -m http.server` and drive it with `window.seek(i, t)`.
+- **Previewing.** Many browser tools cannot screenshot `file://`. Use
+  `scripts/check.py`, which serves the folder and drives `window.explainer`.

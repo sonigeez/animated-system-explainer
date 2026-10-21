@@ -6,7 +6,7 @@ What it does, in order:
      passed as  --img <name>=<path>.  Raster images are shrunk to --max-px tall
      and re-encoded as WebP when `cwebp` is installed (a 1-2 MB photo becomes
      a few KB), otherwise embedded as-is.
-  2. Makes the page pure ASCII. Published artifacts can be decoded with the
+  2. Makes the page pure ASCII. Hosted pages can be decoded with the
      wrong charset, which turns arrows and crosses into mojibake ("a-hat" plus
      junk). Non-ASCII characters become \\uXXXX inside <script>, CSS escapes
      inside <style>, and &#N; entities everywhere else. A <meta charset> is

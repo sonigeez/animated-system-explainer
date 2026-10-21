@@ -198,7 +198,7 @@ h1 .cur{display:inline-block;width:.55em;height:1em;margin-left:.08em;vertical-a
       <circle class="led" id="led0" cx="646" cy="78" r="2.6"/><circle class="led" id="led1" cx="646" cy="112" r="2.6"/><circle class="led" id="led2" cx="646" cy="146" r="2.6"/>
       <rect class="ink" x="660" y="76.5" width="54" height="3" rx="1.5" opacity=".35"/><rect class="ink" x="660" y="110.5" width="40" height="3" rx="1.5" opacity=".35"/><rect class="ink" x="660" y="144.5" width="48" height="3" rx="1.5" opacity=".35"/>
       <text class="lbl" x="680" y="204" text-anchor="middle">Auth server</text>
-      <text id="storeLbl" class="sub" x="744" y="68" text-anchor="middle" font-size="10.5" opacity="0">stored</text>
+      <text id="storeLbl" class="sub" x="744" y="20" text-anchor="middle" font-size="10.5" opacity="0">stored</text>
 
       <!-- malicious app (stolen-code video) -->
       <g id="evil" opacity="0">
@@ -659,6 +659,13 @@ h1 .cur{display:inline-block;width:.55em;height:1em;margin-left:.08em;vertical-a
   vWatch.addEventListener('click', () => setView('watch'));
   vRead.addEventListener('click', () => setView('read'));
   window.seek = (i, x) => { go(i); t = x; shownStep = -1; draw(); };
+  /* Control API for agents and test scripts: list videos, pause, jump to any frame, switch tabs. */
+  window.explainer = {
+    videos: VIDEOS.map((v) => ({ tab: v.tab, title: v.title, duration: v.D, steps: v.steps.map((st) => ({ start: st[0], label: st[1], text: st[2] })) })),
+    pause: () => setPlaying(false),
+    seek: (i, x) => { setPlaying(false); if (reading) setView('watch'); window.seek(i, x); },
+    view: (v) => setView(v)
+  };
 
   go(0);
   booted = true;
