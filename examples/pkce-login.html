@@ -1,0 +1,668 @@
+<meta charset="utf-8">
+<title>PKCE Login Explained</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+/* Layout: prompt header / key legend / bracketed stage / formula + transport / video strip.
+   Deliberately single-theme (a terminal at night), every colour set explicitly. Hex rain on a canvas behind everything.
+   Key language: cyan = app secret and its hash, amber = server-issued code, green square = token. Solid = secret, dashed = may be seen. */
+:root{
+  --bg:#05080a; --panel:#0b1114; --ink:#d6e4dc; --ink2:#a9bbb2; --muted:#64776f; --line:#1c2a27; --well:#101a18;
+  --seal:#3ce58f; --seal-dim:rgba(60,229,143,.14); --key:#ffb648; --otk:#52c8ff; --bad:#ff6157;
+  --mono:"JetBrains Mono","SFMono-Regular",Menlo,Consolas,monospace;
+  --sans:"IBM Plex Sans","Helvetica Neue",Arial,sans-serif;
+  color-scheme:dark;
+}
+html{height:100%}
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+body{height:100%;margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);font-size:13px;line-height:1.45;-webkit-font-smoothing:antialiased;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+#rain{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+body::after{content:"";position:fixed;inset:0;z-index:1;pointer-events:none;
+  background:repeating-linear-gradient(to bottom,rgba(255,255,255,.018) 0 1px,transparent 1px 3px),
+             radial-gradient(120% 90% at 50% 40%,transparent 55%,rgba(0,0,0,.55))}
+button{font:inherit;color:inherit;cursor:pointer;appearance:none;-webkit-appearance:none;background:none;border:0;padding:0;margin:0}
+button:focus-visible{outline:2px solid var(--seal);outline-offset:3px}
+
+.app{position:relative;z-index:2;min-height:100%;max-width:800px;margin:0 auto;display:flex;flex-direction:column;gap:10px;padding-block:20px 12px}
+#watchView{display:flex;flex-direction:column;gap:10px;flex:1}
+.views{display:inline-flex;border:1px solid var(--line);background:var(--panel)}
+.views button{padding:6px 16px;font-size:12px;letter-spacing:.06em;color:var(--muted);transition:background .15s,color .15s}
+.views button:hover{color:var(--ink)}
+.views button[aria-pressed="true"]{background:var(--seal);color:var(--bg);font-weight:700}
+/* read view */
+.read{width:100%;max-width:760px;margin:0 auto;background:rgba(11,17,20,.88);border:1px solid var(--line);padding:22px clamp(16px,4vw,38px) 34px;font-family:var(--sans);font-size:15.5px;line-height:1.62;color:var(--ink)}
+.read .big{font-size:19px;line-height:1.45;color:var(--ink);margin:4px 0 6px;text-wrap:balance}
+.read h2{font-family:var(--mono);font-size:14px;letter-spacing:.03em;color:var(--seal);margin:36px 0 12px;font-weight:700}
+.read h2::before{content:"## ";color:var(--muted)}
+.read p{margin:0 0 12px;color:var(--ink2);max-width:66ch}
+.read strong{color:var(--ink);font-weight:600}
+.read code{font-family:var(--mono);font-size:13px;color:var(--ink);background:var(--well);padding:1px 5px}
+.read ol,.read ul{margin:0 0 12px;padding-left:22px;color:var(--ink2)} .read li{margin:0 0 6px}
+.read .tw{overflow-x:auto;margin:0 0 12px}
+.read table{width:100%;border-collapse:collapse;font-size:14px;min-width:520px}
+.read th,.read td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+.read th{font-family:var(--mono);font-size:11.5px;font-weight:500;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+.read td{color:var(--ink2)} .read td:first-child{color:var(--ink);white-space:nowrap}
+.read .yes{color:var(--key);font-weight:600} .read .no{color:var(--seal);font-weight:600}
+.g{display:inline-block;width:24px;height:24px;vertical-align:-7px;margin-right:6px;overflow:visible}
+.seqwrap{overflow-x:auto;margin:6px 0 14px;border:1px solid var(--line);background:var(--panel)}
+.seqwrap svg{display:block;width:100%;min-width:640px;height:auto}
+.sq{font-family:var(--mono);font-size:13px;fill:var(--ink2)} .sqn{font-family:var(--mono);font-size:13px;font-weight:700;fill:var(--seal)}
+.sqo{font-family:var(--mono);font-size:17px;font-weight:700;fill:var(--muted)} .sqa{font-family:var(--mono);font-size:15px;font-weight:700;fill:var(--ink)}
+.combos{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:4px 0 12px}
+.combo{border:1px solid var(--line);background:var(--panel);padding:14px 16px;min-width:0}
+.combo .who{font-family:var(--mono);font-size:11.5px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.combo .f{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px 0 8px;font-family:var(--mono);font-size:18px;font-weight:700;color:var(--muted)}
+.combo .f .g{width:34px;height:34px;margin:0;vertical-align:middle}
+.combo p{font-size:14px;margin:0}
+.same{text-align:center;font-family:var(--mono);font-size:13px;color:var(--seal);margin:0 0 12px}
+.bytes{display:grid;grid-template-columns:9fr 4fr 6fr 30fr 14fr 37fr;gap:3px;min-width:560px;font-family:var(--mono);font-size:11.5px}
+.bytes div{padding:9px 6px;border:1px solid var(--line);background:var(--panel);color:var(--ink2);text-align:center;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bytes .op{border-color:var(--otk);color:var(--otk)} .bytes .ct{border-color:var(--seal);color:var(--seal);background:repeating-linear-gradient(135deg,var(--seal-dim) 0 6px,transparent 6px 12px)}
+.bcap{display:grid;grid-template-columns:9fr 4fr 6fr 30fr 14fr 37fr;gap:3px;min-width:560px;font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-top:4px}
+.bcap span{text-align:center}
+.qa dt{font-weight:600;color:var(--ink);margin-top:14px}
+.qa dd{margin:4px 0 0;color:var(--ink2);max-width:66ch}
+@media (max-width:560px){.combos{grid-template-columns:1fr}}
+
+.head{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px}
+.prompt{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prompt b{color:var(--seal);font-weight:500}
+h1{margin:0;max-width:26ch;min-height:2.3em;display:flex;align-items:center;justify-content:center;font-weight:700;
+  font-size:clamp(20px,4.2vw,30px);line-height:1.15;letter-spacing:-.02em;text-wrap:balance}
+h1 .cur{display:inline-block;width:.55em;height:1em;margin-left:.08em;vertical-align:-.12em;background:var(--seal);animation:blink 1.05s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.lede{margin:0;max-width:56ch;min-height:2.9em;color:var(--ink2);font-size:13.5px;text-wrap:balance;transition:opacity .25s}
+.lede.out{opacity:0}
+
+.legend{display:flex;flex-wrap:wrap;justify-content:center;gap:6px 16px;font-size:11.5px;color:var(--muted)}
+.lg{display:flex;align-items:center;gap:6px;opacity:.38;transition:opacity .3s,color .3s}
+.lg.lit{opacity:1;color:var(--ink)}
+.lg svg{width:22px;height:22px;flex:none;overflow:visible}
+
+.stage{position:relative;display:flex;align-items:center;justify-content:center;min-height:220px;padding:10px 6px;
+  background:rgba(11,17,20,.74);border:1px solid var(--line)}
+.stage .br{position:absolute;width:14px;height:14px;border-color:var(--seal);border-style:solid;opacity:.8}
+.br.tl{top:-1px;left:-1px;border-width:2px 0 0 2px}.br.tr{top:-1px;right:-1px;border-width:2px 2px 0 0}
+.br.bl{bottom:-1px;left:-1px;border-width:0 0 2px 2px}.br.brr{bottom:-1px;right:-1px;border-width:0 2px 2px 0}
+.stage svg{width:100%;max-width:780px;height:auto;display:block;overflow:visible}
+.lbl{font-family:var(--mono);font-size:17px;font-weight:700;fill:var(--ink)}
+.sub{font-family:var(--mono);font-size:12px;fill:var(--muted)}
+.tag{font-family:var(--mono);font-size:13.5px;font-weight:500}
+.hex{font-family:var(--mono);font-size:7.6px;fill:var(--seal)}
+.lane{stroke:var(--line);stroke-width:2;stroke-dasharray:2 7;stroke-linecap:round;transition:stroke .3s}
+.lane.on{stroke:var(--seal);filter:drop-shadow(0 0 4px rgba(60,229,143,.7))}
+.dev{fill:var(--panel);stroke:var(--ink2);stroke-width:1.6}
+.ink{fill:var(--ink2)}
+.led{fill:var(--seal)}
+.chip{fill:var(--panel);stroke:var(--ink2);stroke-width:1.5}
+.chipline{fill:var(--muted)}
+.lockb{fill:var(--seal)}
+.lockc{stroke:var(--seal);fill:none;stroke-width:2.4}
+.glow{filter:drop-shadow(0 0 6px rgba(60,229,143,.55))}
+
+.transport{display:flex;flex-direction:column;align-items:center;gap:12px}
+.eq{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;min-height:34px;font-size:13px;color:var(--ink);transition:opacity .3s}
+.eq.off{opacity:0}
+.eq svg{width:28px;height:28px;flex:none;overflow:visible}
+.eq .op{color:var(--muted);font-size:17px;font-weight:700}
+.eq .tx{color:var(--ink2)}
+.eq .x{color:var(--bad);font-weight:700}
+.step{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px 10px;min-height:22px;max-width:100%;color:var(--ink);font-size:13.5px;text-align:center}
+.step .t{min-width:0}
+.step .t::before{content:"> ";color:var(--seal)}
+.pill{flex:none;font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;line-height:1;padding:5px 7px 4px;border:1px solid var(--seal);color:var(--seal);background:var(--seal-dim)}
+.bar{position:relative;width:min(100%,380px);height:2px;background:var(--line)}
+.bar .fill{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--seal);box-shadow:0 0 8px rgba(60,229,143,.7)}
+.bar .dot{position:absolute;top:50%;width:7px;height:7px;margin:-3.5px 0 0 -3.5px;background:var(--bg);border:1.5px solid var(--muted);transform:rotate(45deg)}
+.bar .dot{cursor:pointer;padding:0;transition:border-color .15s,transform .15s}
+.bar .dot::before{content:"";position:absolute;inset:-11px}
+.bar .dot:hover{border-color:var(--ink);transform:rotate(45deg) scale(1.3)}
+.bar .dot:focus-visible{outline:2px solid var(--seal);outline-offset:3px}
+.bar .dot.on{border-color:var(--seal);background:var(--seal)}
+.bar .dot.cur{box-shadow:0 0 10px rgba(60,229,143,.9)}
+.ctrls{display:flex;align-items:center;gap:12px}
+.tog,.nav{width:42px;height:42px;display:grid;place-items:center;color:var(--ink2);border:1px solid var(--line);background:var(--panel);transition:border-color .15s,color .15s}
+.tog:hover,.nav:hover{border-color:var(--muted);color:var(--ink)}
+.tog svg,.nav svg{width:18px;height:18px}
+.tog[aria-pressed="true"]{border-color:var(--seal);color:var(--seal)}
+.play{width:56px;height:56px;display:grid;place-items:center;background:var(--seal);color:var(--bg);box-shadow:0 0 22px -4px rgba(60,229,143,.7);transition:transform .15s ease}
+.play:active{transform:scale(.95)}
+.play svg{width:22px;height:22px}
+.spacer{width:42px;height:42px}
+
+.strip{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;justify-content:center;padding:6px 0 4px}
+.strip::-webkit-scrollbar{display:none}
+.tab{flex:none;width:78px;display:flex;flex-direction:column;align-items:center;gap:7px;padding:4px 0 2px;color:var(--muted);font-size:11px;line-height:1.15;text-align:center;transition:color .2s}
+.tab .th{width:40px;height:40px;display:grid;place-items:center;border:1px solid var(--line);background:var(--panel);color:var(--ink2);transition:border-color .2s,color .2s,box-shadow .2s}
+.tab .th svg{width:19px;height:19px}
+.tab:hover .th{border-color:var(--muted)}
+.tab[aria-current="true"]{color:var(--seal)}
+.tab[aria-current="true"] .th{border-color:var(--seal);color:var(--seal);box-shadow:0 0 14px -4px rgba(60,229,143,.8)}
+@media (max-width:480px){.strip{justify-content:flex-start}.tab{width:66px}}
+@media (max-height:720px){.lede{display:none}}
+@media (prefers-reduced-motion:reduce){h1 .cur{animation:none}.lane,.lede,.eq,.lg{transition:none!important}}
+</style>
+
+<canvas id="rain" aria-hidden="true"></canvas>
+<main class="app">
+  <header class="head">
+    <div class="prompt">dev@auth:~$ <b>./explain</b> <span id="argVideo">--video <span id="count">01/04</span></span><span id="argRead" hidden>--readme</span></div>
+    <div class="views" role="group" aria-label="View">
+      <button type="button" id="vWatch" aria-pressed="true">watch</button>
+      <button type="button" id="vRead" aria-pressed="false">read</button>
+    </div>
+    <h1><span id="title"></span><span class="cur" aria-hidden="true"></span></h1>
+    <p id="lede" class="lede"></p>
+  </header>
+
+  <div id="watchView">
+  <div class="legend" id="legend" aria-label="Key legend"></div>
+
+  <section class="stage" aria-label="Mobile app, browser and auth server">
+    <span class="br tl"></span><span class="br tr"></span><span class="br bl"></span><span class="br brr"></span>
+    <svg viewBox="0 0 800 330" role="img" aria-label="Mobile app, browser and auth server, connected left to right, with the PKCE secrets moving between them." id="svg">
+      <!-- front channel (through the browser) and back channel (app straight to the server) -->
+      <line id="laneA" class="lane" x1="172" y1="244" x2="336" y2="244"/>
+      <line id="laneB" class="lane" x1="464" y1="244" x2="632" y2="244"/>
+      <path id="laneC" class="lane" d="M120 262 V292 H680 V262" fill="none"/>
+      <text class="sub" x="254" y="236" text-anchor="middle">redirect</text>
+      <text class="sub" x="548" y="236" text-anchor="middle">https</text>
+      <text class="sub" x="400" y="286" text-anchor="middle">back channel (https, no browser)</text>
+
+      <!-- Mobile app -->
+      <rect class="dev" x="86" y="52" width="68" height="122" rx="13"/>
+      <rect class="ink" x="110" y="60" width="20" height="3.5" rx="1.75"/>
+      <text class="sub" x="120" y="118" text-anchor="middle">app</text>
+      <text id="appOk" class="tag" x="120" y="140" text-anchor="middle" fill="var(--seal)" opacity="0">[ok]</text>
+      <text class="lbl" x="120" y="204" text-anchor="middle">Mobile app</text>
+
+      <!-- Browser with the sign-in page -->
+      <rect class="dev" x="336" y="62" width="128" height="104" rx="6"/>
+      <line x1="336" y1="78" x2="464" y2="78" stroke="var(--ink2)" stroke-width="1.2"/>
+      <circle class="ink" cx="346" cy="70" r="2.2"/><circle class="ink" cx="354" cy="70" r="2.2"/><circle class="ink" cx="362" cy="70" r="2.2"/>
+      <rect x="356" y="90" width="88" height="14" rx="2" fill="none" stroke="var(--muted)" stroke-width="1.2"/>
+      <rect x="356" y="110" width="88" height="14" rx="2" fill="none" stroke="var(--muted)" stroke-width="1.2"/>
+      <text id="fUser" class="sub" x="361" y="101" font-size="9.5" opacity="0">ana@example.com</text>
+      <text id="fPass" class="sub" x="361" y="121" font-size="9.5" opacity="0">********</text>
+      <rect id="lbtn" x="356" y="132" width="88" height="16" rx="2" fill="var(--seal)" opacity=".75"/>
+      <text class="sub" x="400" y="143.5" text-anchor="middle" font-size="9.5" fill="var(--bg)">sign in</text>
+      <text class="lbl" x="400" y="204" text-anchor="middle">Browser</text>
+
+      <!-- Auth server -->
+      <rect class="dev" x="632" y="64" width="96" height="28" rx="4"/>
+      <rect class="dev" x="632" y="98" width="96" height="28" rx="4"/>
+      <rect class="dev" x="632" y="132" width="96" height="28" rx="4"/>
+      <circle class="led" id="led0" cx="646" cy="78" r="2.6"/><circle class="led" id="led1" cx="646" cy="112" r="2.6"/><circle class="led" id="led2" cx="646" cy="146" r="2.6"/>
+      <rect class="ink" x="660" y="76.5" width="54" height="3" rx="1.5" opacity=".35"/><rect class="ink" x="660" y="110.5" width="40" height="3" rx="1.5" opacity=".35"/><rect class="ink" x="660" y="144.5" width="48" height="3" rx="1.5" opacity=".35"/>
+      <text class="lbl" x="680" y="204" text-anchor="middle">Auth server</text>
+      <text id="storeLbl" class="sub" x="744" y="68" text-anchor="middle" font-size="10.5" opacity="0">stored</text>
+
+      <!-- malicious app (stolen-code video) -->
+      <g id="evil" opacity="0">
+        <rect x="226" y="96" width="60" height="80" rx="10" fill="var(--panel)" stroke="var(--bad)" stroke-width="1.6" stroke-dasharray="4 3"/>
+        <text class="sub" x="256" y="140" text-anchor="middle" fill="var(--bad)">evil</text>
+        <text class="sub" x="256" y="190" text-anchor="middle" fill="var(--bad)">malicious app</text>
+      </g>
+
+      <!-- combine flash -->
+      <g id="flash" opacity="0">
+        <circle id="flashRing" r="10" fill="none" stroke="var(--ink)" stroke-width="2"/>
+        <circle id="flashCore" r="6" fill="var(--ink)"/>
+      </g>
+
+      <!-- notes -->
+      <text id="note1" class="tag" x="0" y="0" text-anchor="middle" fill="var(--ink2)" opacity="0"></text>
+      <text id="note2" class="tag" x="0" y="0" text-anchor="middle" fill="var(--ink2)" opacity="0"></text>
+
+      <g id="tokens"></g>
+    </svg>
+  </section>
+
+  <section class="transport">
+    <div class="eq off" id="eq" aria-live="polite"></div>
+    <div class="step"><span class="pill" id="pill"></span><span class="t" id="stepText"></span></div>
+    <div class="bar" id="bar"><div class="fill" id="fill"></div></div>
+    <div class="ctrls">
+      <button class="tog" id="loop" aria-pressed="false" aria-label="Repeat this video"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter"><path d="M4 9.2V5h11.2"/><path d="M13 2.8L15.2 5 13 7.2"/><path d="M16 10.8V15H4.8"/><path d="M7 17.2L4.8 15 7 12.8"/></svg></button>
+      <button class="nav" id="prev" aria-label="Previous video"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square"><path d="M11 4L6 9l5 5"/></svg></button>
+      <button class="play" id="play" aria-label="Play"><svg viewBox="0 0 22 22" id="playIcon"></svg></button>
+      <button class="nav" id="next" aria-label="Next video"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square"><path d="M7 4l5 5-5 5"/></svg></button>
+      <span class="spacer" aria-hidden="true"></span>
+    </div>
+  </section>
+
+  <nav class="strip" id="strip" aria-label="Videos"></nav>
+  </div>
+
+  <article class="read" id="readView" hidden>
+    <p class="big">PKCE lets a mobile app sign a user in safely without a client secret. The app proves it started the login by revealing a secret only at the very end.</p>
+    <p>A mobile app cannot keep a client secret: anyone can unpack it. PKCE replaces the fixed secret with a fresh one per login that never passes through the browser.</p>
+
+    <h2>the pieces</h2>
+    <p>Solid rings must stay secret. Dashed rings may be seen by others.</p>
+    <div class="tw"><table>
+      <tr><th>piece</th><th>made by</th><th>travels</th><th>lifetime</th></tr>
+      <tr><td><span data-g="ver"></span>code verifier</td><td>app, random 43-128 chars</td><td>back channel, once, at the end</td><td>one login</td></tr>
+      <tr><td><span data-g="chal"></span>code challenge</td><td>app, SHA-256 of the verifier</td><td>through the browser</td><td>one login</td></tr>
+      <tr><td><span data-g="code"></span>auth code</td><td>auth server</td><td>browser redirect to the app</td><td>seconds, single use</td></tr>
+      <tr><td><span data-g="tok"></span>access token</td><td>auth server</td><td>back channel to the app</td><td>minutes to hours</td></tr>
+    </table></div>
+
+    <h2>the flow</h2>
+    <div class="seqwrap" id="seq"></div>
+    <ol>
+      <li>The app makes a random code verifier and hashes it into the code challenge.</li>
+      <li>The app opens the browser at <code>/authorize</code> with the challenge. The verifier stays in the app.</li>
+      <li>The user signs in on the auth server's page. The server stores the challenge with the login.</li>
+      <li>The server redirects back to the app with a one-time auth code.</li>
+      <li>The app calls <code>/token</code> directly with the code and the verifier.</li>
+      <li>The server hashes the verifier and compares it with the stored challenge.</li>
+      <li>If they match, the server returns an access token.</li>
+    </ol>
+
+    <h2>the check</h2>
+    <p>The same hash is computed twice, by two different parties, at two different times. Only the party that made the verifier can produce a match.</p>
+    <div class="combos">
+      <div class="combo"><div class="who">in the app, before login</div>
+        <div class="f"><span data-g="ver"></span>-&gt;<span data-g="chal"></span></div>
+        <p>challenge = sha256(verifier)</p></div>
+      <div class="combo"><div class="who">on the server, at /token</div>
+        <div class="f"><span data-g="ver"></span>-&gt;<span data-g="chal"></span>=<span data-g="chal"></span></div>
+        <p>sha256(verifier) = stored challenge</p></div>
+    </div>
+
+    <h2>the two requests</h2>
+    <div class="tw"><table>
+      <tr><th>request</th><th>carries</th></tr>
+      <tr><td><code>GET /authorize</code></td><td><code>response_type=code, client_id, redirect_uri, code_challenge, code_challenge_method=S256</code></td></tr>
+      <tr><td><code>POST /token</code></td><td><code>grant_type=authorization_code, code, redirect_uri, client_id, code_verifier</code></td></tr>
+    </table></div>
+
+    <h2>who sees what</h2>
+    <div class="tw"><table>
+      <tr><th>place</th><th>sees</th><th>can get a token?</th></tr>
+      <tr><td>Browser and its history</td><td>challenge, auth code</td><td class="no">no</td></tr>
+      <tr><td>Another app on the phone</td><td>auth code, if it grabs the redirect</td><td class="no">no</td></tr>
+      <tr><td>Network</td><td>everything inside HTTPS</td><td class="no">no</td></tr>
+      <tr><td>The real app</td><td>verifier, code, token</td><td class="yes">yes</td></tr>
+    </table></div>
+
+    <h2>questions</h2>
+    <dl class="qa">
+      <dt>Why not just use a client secret?</dt>
+      <dd>Anything shipped inside an app can be extracted, so it is not a secret. PKCE makes a new secret for every login instead.</dd>
+      <dt>Is it a problem that the challenge is visible?</dt>
+      <dd>No. SHA-256 cannot be reversed, so seeing the challenge does not reveal the verifier.</dd>
+      <dt>Why always S256 and not "plain"?</dt>
+      <dd>With "plain" the challenge equals the verifier, so anyone who saw the first request could finish the login.</dd>
+      <dt>Does PKCE replace HTTPS or state checks?</dt>
+      <dd>No. Keep HTTPS everywhere and keep the <code>state</code> parameter against cross-site request forgery.</dd>
+    </dl>
+  </article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  /* ---------------- key language ---------------- */
+  const KEYS = {
+    ver:  { c: 'var(--otk)', priv: true,  name: 'code verifier (secret)' },
+    chal: { c: 'var(--otk)', priv: false, name: 'code challenge' },
+    code: { c: 'var(--key)', priv: false, name: 'auth code' },
+    tok:  { c: 'var(--seal)', priv: true, name: 'access token', square: true }
+  };
+  function glyph(kind) {
+    const k = KEYS[kind], c = k.c, dash = k.priv ? '' : ' stroke-dasharray="3.2 2.6"';
+    const ring = k.square
+      ? `<rect x="-13.5" y="-13.5" width="27" height="27" rx="4" fill="var(--panel)" stroke="${c}" stroke-width="1.8"/><rect x="-13.5" y="-13.5" width="27" height="27" rx="4" fill="${c}" fill-opacity=".16"/>`
+      : `<circle r="14" fill="var(--panel)" stroke="${c}" stroke-width="1.8"${dash}/>` + (k.priv ? `<circle r="14" fill="${c}" fill-opacity=".16"/>` : '');
+    return ring + `<circle cx="-5" cy="0" r="4.3" stroke="${c}" stroke-width="2.2" fill="${k.priv ? c : 'none'}"/>` +
+      `<path d="M-.7 0H10M7 0v3.8M10 0v3" stroke="${c}" stroke-width="2.2" stroke-linecap="round" fill="none"/>`;
+  }
+  const svgGlyph = (kind) => `<svg viewBox="-16 -16 32 32" aria-hidden="true">${glyph(kind)}</svg>`;
+
+  const VIDEOS = [
+    { tab: 'start', title: 'The app makes a secret before login starts',
+      lede: 'A random code verifier stays inside the app. Only its hash, the code challenge, goes out.',
+      lit: ['ver', 'chal'], D: 7.5,
+      steps: [[0, 'random', 'the app makes a random code verifier', ['ver']],
+              [1.8, 'hash', 'the challenge is the SHA-256 of the verifier', ['ver', '->', 't:sha256', '->', 'chal']],
+              [3.6, 'send', 'only the challenge leaves, through the browser', ['chal', '->', 't:browser', '->', 't:auth server']],
+              [6.0, 'stored', 'the auth server remembers the challenge', ['chal', 't:stored on the server']]],
+      icon: '<circle cx="10" cy="10" r="6.5"/><path d="M10 6.5V10l2.5 1.5"/>' },
+    { tab: 'login', title: 'The user signs in, the app gets a one-time code',
+      lede: 'The auth server sends a short-lived code back through the browser redirect.',
+      lit: ['chal', 'code'], D: 7,
+      steps: [[0, 'login', 'the user signs in on the auth server page', null],
+              [2.2, 'code', 'the server issues a one-time auth code', ['code']],
+              [3.6, 'redirect', 'the browser hands the code to the app', ['code', '->', 't:app']]],
+      icon: '<rect x="3.5" y="4" width="13" height="12"/><path d="M3.5 7.5h13M7 11h6"/>' },
+    { tab: 'exchange', title: 'The app proves it started the login',
+      lede: 'It sends the code and the verifier. The server hashes the verifier and checks it against the stored challenge.',
+      lit: ['ver', 'chal', 'code', 'tok'], D: 9.2,
+      steps: [[0, 'send', 'the app sends the code and the verifier, directly', ['code', '+', 'ver']],
+              [2.6, 'check', 'server: sha256(verifier) = stored challenge?', ['ver', '->', 't:sha256', '=', 'chal']],
+              [4.6, 'token', 'match: the server issues an access token', ['tok']],
+              [6.6, 'done', 'the app is signed in', ['tok', 't:held by the app']]],
+      icon: '<path d="M3 7h12M12 4l3 3-3 3M17 13H5M8 16l-3-3 3-3"/>' },
+    { tab: 'stolen', title: 'A stolen code is useless on its own',
+      lede: 'Another app can grab the redirect, but it never saw the verifier, so the server refuses it.',
+      lit: ['code', 'chal'], D: 8,
+      steps: [[0, 'steal', 'a malicious app grabs the code from the redirect', ['code']],
+              [2.6, 'try', 'it sends the code without a verifier', ['code', '+', 'x:no verifier']],
+              [4.6, 'result', 'no verifier, no match: rejected', ['x:[x] invalid_grant']]],
+      icon: '<path d="M10 3l6 2.4V10c0 3.6-2.6 6-6 7-3.4-1-6-3.4-6-7V5.4z"/><path d="M7.5 10l1.8 1.8L12.8 8.2"/>' }
+  ];
+
+  const RM = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const NS = 'http://www.w3.org/2000/svg';
+  const $ = (id) => document.getElementById(id);
+  const clamp = (x) => Math.max(0, Math.min(1, x));
+  const seg = (t, a, b) => clamp((t - a) / (b - a));
+  const ease = (x) => 1 - Math.pow(1 - x, 3);
+  const spring = (x) => x <= 0 ? 0 : 1 - Math.exp(-6.2 * x) * (Math.cos(9.4 * x) + 6.2 / 9.4 * Math.sin(9.4 * x));
+  const lerp = (a, b, x) => a + (b - a) * x;
+  const bump = (t, a, b) => Math.sin(Math.PI * seg(t, a, b));
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const op = (el, v) => el.setAttribute('opacity', r2(v));
+  const at = (el, x, y, s) => el.setAttribute('transform', `translate(${r2(x)},${r2(y)})` + (s != null ? ` scale(${r2(Math.max(0.01, s))})` : ''));
+  const scaleAround = (el, cx, cy, s) => el.setAttribute('transform', `translate(${r2(cx)},${r2(cy)}) scale(${r2(s)}) translate(${-cx},${-cy})`);
+  function kf(t, pts) {               /* eased path through [time, x, y] keyframes; a repeated point is a hold */
+    if (t <= pts[0][0]) return [pts[0][1], pts[0][2]];
+    for (let i = 1; i < pts.length; i++) {
+      if (t <= pts[i][0]) { const a = pts[i - 1], b = pts[i], e = ease((t - a[0]) / (b[0] - a[0] || 1)); return [lerp(a[1], b[1], e), lerp(a[2], b[2], e)]; }
+    }
+    const l = pts[pts.length - 1]; return [l[1], l[2]];
+  }
+
+  const E = {};
+  ['laneA', 'laneB', 'laneC', 'appOk', 'fUser', 'fPass', 'lbtn', 'storeLbl', 'evil',
+   'flash', 'flashRing', 'flashCore', 'note1', 'note2', 'led0', 'led1', 'led2', 'tokens'].forEach((k) => E[k] = $(k));
+  function token(kind) { const g = document.createElementNS(NS, 'g'); g.innerHTML = glyph(kind); E.tokens.appendChild(g); return g; }
+  const K = {
+    ver: token('ver'), verCopy: token('ver'), chal: token('chal'), chalStore: token('chal'),
+    code: token('code'), tok: token('tok')
+  };
+  const HOME = { ver: [178, 60], store: [744, 40], appCode: [190, 112], mix: [585, 112] };
+  const place = (g, p, s, o) => { at(g, p[0], p[1], s == null ? 1 : s); op(g, o == null ? 1 : o); };
+  function note(el, txt, x, y, o, color) { el.textContent = txt; el.setAttribute('x', x); el.setAttribute('y', y); el.setAttribute('fill', color || 'var(--ink2)'); op(el, o); }
+  function flash(t, t0, x, y, color) {
+    const p = seg(t, t0, t0 + 0.45);
+    op(E.flash, seg(t, t0 - 0.03, t0) * (1 - p)); at(E.flash, x, y);
+    E.flashRing.setAttribute('stroke', color || 'var(--ink)'); E.flashCore.setAttribute('fill', color || 'var(--ink)');
+    E.flashRing.setAttribute('r', r2(6 + 30 * ease(p))); E.flashCore.setAttribute('r', r2(7 * (1 - p)));
+  }
+  const lanes = (a, b, c) => { E.laneA.classList.toggle('on', a); E.laneB.classList.toggle('on', b); E.laneC.classList.toggle('on', c); };
+
+  function reset(t) {
+    lanes(false, false, false);
+    place(K.ver, HOME.ver); place(K.chalStore, HOME.store, 0.85); op(E.storeLbl, 1);
+    ['verCopy', 'chal', 'code', 'tok'].forEach((k) => op(K[k], 0));
+    [E.appOk, E.fUser, E.fPass, E.evil, E.flash, E.note1, E.note2].forEach((e) => op(e, 0));
+    E.lbtn.removeAttribute('transform');
+    [E.led0, E.led1, E.led2].forEach((l, i) => op(l, (Math.floor(t * 3 + i * 1.7) % 3) ? 0.9 : 0.25));
+  }
+
+  const SCENES = [
+    /* 1 - start: verifier, challenge = sha256(verifier), challenge goes to the server */
+    function start(t) {
+      place(K.ver, HOME.ver, spring(seg(t, 0.2, 0.8)), seg(t, 0.2, 0.35));
+      note(E.note1, 'random', 178, 26, seg(t, 0.3, 0.6) * (1 - seg(t, 1.5, 1.7)), 'var(--otk)');
+      const H = [236, 118];
+      place(K.verCopy, kf(t, [[1.8, 178, 60], [2.3, H[0], H[1]]]), 0.8, seg(t, 1.8, 1.9) * (1 - seg(t, 2.3, 2.4)));
+      flash(t, 2.35, H[0], H[1]);
+      if (t < 3) note(E.note1, 'sha256', H[0], 160, seg(t, 2.2, 2.5) * (1 - seg(t, 3.3, 3.5)), 'var(--otk)');
+      const p = kf(t, [[3.6, H[0], H[1]], [4.0, 172, 244], [4.6, 400, 244], [4.9, 400, 244], [5.6, 632, 244], [6.0, HOME.store[0], HOME.store[1]]]);
+      place(K.chal, p, spring(seg(t, 2.4, 3.0)) * lerp(1, 0.85, seg(t, 5.6, 6.0)), seg(t, 2.4, 2.5) * (1 - seg(t, 5.95, 6.05)));
+      place(K.chalStore, HOME.store, 0.85, seg(t, 5.95, 6.05)); op(E.storeLbl, seg(t, 6.0, 6.3));
+      note(E.note2, 'GET /authorize ?code_challenge=...&method=S256', 400, 322, seg(t, 3.8, 4.1) * (1 - seg(t, 5.5, 5.8)));
+      lanes(t > 4.0 && t < 4.6, t > 4.9 && t < 5.6, false);
+    },
+    /* 2 - login: user signs in, server issues a one-time code, redirect back to the app */
+    function login(t) {
+      op(E.fUser, seg(t, 0.3, 0.7)); op(E.fPass, seg(t, 0.9, 1.3));
+      scaleAround(E.lbtn, 400, 140, 1 - 0.08 * bump(t, 1.6, 2.0));
+      note(E.note2, 'the password goes to the auth server, never to the app', 400, 322, seg(t, 0.3, 0.6) * (1 - seg(t, 2.0, 2.3)));
+      const p = kf(t, [[3.6, 632, 244], [4.3, 400, 244], [4.6, 400, 244], [5.4, 172, 244], [5.8, HOME.appCode[0], HOME.appCode[1]]]);
+      place(K.code, p, spring(seg(t, 2.2, 2.8)), seg(t, 2.2, 2.3));
+      note(E.note1, 'one-time, expires in seconds', 600, 30, seg(t, 2.4, 2.7) * (1 - seg(t, 3.5, 3.7)), 'var(--key)');
+      if (t > 3.6) note(E.note2, '302 -> myapp://callback?code=...', 400, 322, seg(t, 3.8, 4.1) * (1 - seg(t, 5.4, 5.7)));
+      lanes(t > 4.6 && t < 5.4, t > 3.6 && t < 4.3, false);
+    },
+    /* 3 - exchange: code + verifier over the back channel, server checks the hash, issues a token */
+    function exchange(t) {
+      const MIX = HOME.mix;
+      place(K.code, kf(t, [[0.3, HOME.appCode[0], HOME.appCode[1]], [0.8, 150, 292], [2.0, 650, 292], [2.4, 560, 160]]), 1, 1 - seg(t, 4.0, 4.3));
+      place(K.verCopy, kf(t, [[0.4, HOME.ver[0], HOME.ver[1]], [0.9, 120, 292], [2.1, 680, 292], [2.5, MIX[0], MIX[1]]]), 1, seg(t, 0.4, 0.5) * (1 - seg(t, 3.55, 3.7)));
+      note(E.note2, 'POST /token  code + code_verifier', 400, 322, seg(t, 0.6, 0.9) * (1 - seg(t, 2.2, 2.5)));
+      note(E.note1, 'sha256(verifier)', MIX[0], 30, seg(t, 2.6, 2.9) * (1 - seg(t, 3.3, 3.5)), 'var(--otk)');
+      place(K.chalStore, kf(t, [[2.8, HOME.store[0], HOME.store[1]], [3.3, MIX[0] + 40, MIX[1]], [3.9, MIX[0] + 40, MIX[1]], [4.3, HOME.store[0], HOME.store[1]]]), 0.85);
+      flash(t, 3.6, MIX[0] + 20, MIX[1], 'var(--seal)');
+      if (t > 3.5 && t < 4.6) note(E.note1, '[ok] matches the stored challenge', MIX[0], 30, seg(t, 3.6, 3.9) * (1 - seg(t, 4.4, 4.6)), 'var(--seal)');
+      const tp = kf(t, [[5.0, MIX[0], MIX[1]], [5.4, 650, 292], [6.2, 150, 292], [6.5, HOME.appCode[0], HOME.appCode[1]]]);
+      place(K.tok, tp, spring(seg(t, 4.6, 5.2)), seg(t, 4.6, 4.7));
+      if (t > 4.6) note(E.note2, 'access_token (and a refresh token)', 400, 322, seg(t, 5.2, 5.5) * (1 - seg(t, 6.2, 6.5)), 'var(--seal)');
+      op(E.appOk, seg(t, 6.6, 6.9));
+      lanes(false, false, (t > 0.8 && t < 2.1) || (t > 5.4 && t < 6.2));
+    },
+    /* 4 - stolen: an intercepted code without the verifier is refused */
+    function stolen(t) {
+      op(E.evil, seg(t, 0.1, 0.4));
+      const p = kf(t, [[0.4, 632, 244], [1.1, 400, 244], [1.4, 400, 244], [2.2, 256, 112], [2.6, 256, 112], [3.0, 256, 292], [3.9, 650, 292], [4.3, HOME.mix[0], HOME.mix[1]]]);
+      place(K.code, p, 1, seg(t, 0.4, 0.5) * (1 - seg(t, 5.4, 5.8)));
+      note(E.note1, 'intercepted', 256, 76, seg(t, 2.0, 2.3) * (1 - seg(t, 2.9, 3.1)), 'var(--bad)');
+      note(E.note2, 'POST /token  code (no verifier)', 400, 322, seg(t, 3.0, 3.3) * (1 - seg(t, 4.2, 4.4)), 'var(--bad)');
+      flash(t, 4.45, HOME.mix[0], HOME.mix[1], 'var(--bad)');
+      if (t > 4.4) note(E.note1, '[x] invalid_grant', HOME.mix[0], 30, seg(t, 4.6, 4.9), 'var(--bad)');
+      if (t > 4.4) note(E.note2, 'only the real app holds the verifier', 400, 322, seg(t, 5.2, 5.5), 'var(--otk)');
+      place(K.ver, HOME.ver, 1 + 0.25 * bump(t, 5.2, 5.9));
+      lanes(false, t > 0.4 && t < 1.1, t > 3.0 && t < 3.9);
+    }
+  ];
+
+  /* ---------------- hex rain ---------------- */
+  (function rain() {
+    const cv = $('rain'), cx = cv.getContext('2d'), CH = '0123456789abcdef', FS = 14;
+    let w = 0, h = 0, cols = [], lastR = 0;
+    function size() {
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      w = cv.clientWidth; h = cv.clientHeight;
+      cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+      cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      cols = Array.from({ length: Math.ceil(w / FS) }, () => ({ y: Math.random() * h, v: 18 + Math.random() * 46, len: 6 + Math.floor(Math.random() * 18) }));
+      paint(0);
+    }
+    function paint(dt) {
+      cx.fillStyle = '#05080a'; cx.fillRect(0, 0, w, h);
+      cx.font = `${FS - 2}px "JetBrains Mono", Menlo, monospace`; cx.textBaseline = 'top';
+      cols.forEach((c, i) => {
+        c.y += c.v * dt; if (c.y - c.len * FS > h) { c.y = -Math.random() * 120; c.v = 18 + Math.random() * 46; }
+        for (let j = 0; j < c.len; j++) {
+          const y = c.y - j * FS; if (y < -FS || y > h) continue;
+          const a = j === 0 ? 0.4 : 0.15 * (1 - j / c.len);
+          cx.fillStyle = j === 0 ? `rgba(180,255,214,${a})` : `rgba(60,229,143,${a})`;
+          cx.fillText(CH[(Math.floor(y / FS) * 7 + i * 13 + Math.floor(c.y / 40)) & 15], i * FS + 1, Math.floor(y / FS) * FS);
+        }
+      });
+    }
+    function loop(now) { const dt = lastR ? Math.min(0.05, (now - lastR) / 1000) : 0; lastR = now; paint(dt); requestAnimationFrame(loop); }
+    window.addEventListener('resize', size);
+    size();
+    if (!RM) requestAnimationFrame(loop);
+  })();
+
+  /* ---------------- player ---------------- */
+  const title = $('title'), lede = $('lede'), count = $('count'), pill = $('pill'), stepText = $('stepText'), eq = $('eq');
+  const bar = $('bar'), fill = $('fill'), playBtn = $('play'), playIcon = $('playIcon'), loopBtn = $('loop'), strip = $('strip'), legend = $('legend');
+  let booted = false, vid = 0, t = 0, playing = false, repeat = false, last = null, shownStep = -1, typeTimer = 0;
+
+  Object.keys(KEYS).forEach((k) => {
+    const d = document.createElement('div'); d.className = 'lg'; d.dataset.k = k;
+    d.innerHTML = svgGlyph(k) + `<span>${KEYS[k].name}</span>`; legend.appendChild(d);
+  });
+  const lgs = [...legend.children];
+
+  VIDEOS.forEach((v, i) => {
+    const b = document.createElement('button');
+    b.className = 'tab'; b.type = 'button';
+    b.innerHTML = `<span class="th"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter">${v.icon}</svg></span><span>${v.tab}</span>`;
+    b.addEventListener('click', () => { go(i); setPlaying(true); });
+    strip.appendChild(b);
+  });
+  const tabs = [...strip.children];
+
+  function eqHTML(items) {
+    return items.map((it) => {
+      if (KEYS[it]) return svgGlyph(it);
+      if (it === '+' || it === '=' || it === '->') return `<span class="op">${it}</span>`;
+      if (it.startsWith('x:')) return `<span class="x">${it.slice(2)}</span>`;
+      return `<span class="tx">${it.slice(2)}</span>`;
+    }).join('');
+  }
+  function stepAt(v, x) { let s = 0; v.steps.forEach((st, i) => { if (x >= st[0]) s = i; }); return s; }
+  function shown(v, x) {
+    if (!RM) return x;
+    const s = stepAt(v, x), end = s + 1 < v.steps.length ? v.steps[s + 1][0] : v.D;
+    return end - 0.02;
+  }
+  function typeTitle(txt) {
+    clearInterval(typeTimer);
+    title.setAttribute('aria-label', txt);
+    if (RM) { title.textContent = txt; return; }
+    let n = 0; title.textContent = '';
+    typeTimer = setInterval(() => { n += 1; title.textContent = txt.slice(0, n); if (n >= txt.length) clearInterval(typeTimer); }, 26);
+  }
+  function swapLede(txt) {
+    if (RM) { lede.textContent = txt; return; }
+    lede.classList.add('out');
+    setTimeout(() => { lede.textContent = txt; lede.classList.remove('out'); }, 220);
+  }
+  function go(i) {
+    vid = (i + VIDEOS.length) % VIDEOS.length; t = 0; shownStep = -1;
+    const v = VIDEOS[vid];
+    count.textContent = String(vid + 1).padStart(2, '0') + '/' + String(VIDEOS.length).padStart(2, '0');
+    typeTitle(v.title); swapLede(v.lede);
+    lgs.forEach((d) => d.classList.toggle('lit', v.lit.includes(d.dataset.k)));
+    tabs.forEach((b, j) => b.setAttribute('aria-current', j === vid ? 'true' : 'false'));
+    if (booted) { const tb = tabs[vid]; strip.scrollTo({ left: tb.offsetLeft - strip.clientWidth / 2 + tb.clientWidth / 2, behavior: RM ? 'auto' : 'smooth' }); }
+    bar.querySelectorAll('.dot').forEach((d) => d.remove());
+    v.steps.forEach((st, i) => {
+      const d = document.createElement('button'); d.type = 'button'; d.className = 'dot';
+      d.style.left = (st[0] / v.D * 100) + '%';
+      d.setAttribute('aria-label', `Step ${i + 1}: ${st[2]}`); d.title = st[2];
+      d.addEventListener('click', () => { t = st[0] + 0.001; shownStep = -1; last = null; draw(); });
+      bar.appendChild(d);
+    });
+    draw();
+  }
+  function draw() {
+    const v = VIDEOS[vid], x = shown(v, t);
+    reset(x); SCENES[vid](x);
+    fill.style.width = (t / v.D * 100) + '%';
+    const s = stepAt(v, t);
+    bar.querySelectorAll('.dot').forEach((d, i) => { d.classList.toggle('on', i <= s); d.classList.toggle('cur', i === s); });
+    if (s !== shownStep) {
+      shownStep = s; const st = v.steps[s];
+      pill.textContent = st[1]; stepText.textContent = st[2];
+      if (st[3]) { eq.innerHTML = eqHTML(st[3]); eq.classList.remove('off'); } else { eq.classList.add('off'); }
+    }
+  }
+  function setPlaying(p) {
+    playing = p; last = null;
+    playIcon.innerHTML = p ? '<rect x="6" y="5" width="3.4" height="12" fill="currentColor"/><rect x="12.6" y="5" width="3.4" height="12" fill="currentColor"/>'
+                           : '<path d="M7 4.5v13l10.5-6.5z" fill="currentColor"/>';
+    playBtn.setAttribute('aria-label', p ? 'Pause' : 'Play');
+  }
+  function tick(now) {
+    if (playing) {
+      if (last !== null) {
+        t += Math.min(0.05, (now - last) / 1000);
+        const v = VIDEOS[vid];
+        if (t >= v.D) {
+          if (repeat) { t = 0; shownStep = -1; }
+          else if (vid < VIDEOS.length - 1) go(vid + 1);
+          else { t = v.D; setPlaying(false); }
+        }
+      }
+      last = now;
+      draw();
+    }
+    requestAnimationFrame(tick);
+  }
+
+  playBtn.addEventListener('click', () => {
+    if (!playing && vid === VIDEOS.length - 1 && t >= VIDEOS[vid].D) go(0);
+    setPlaying(!playing);
+  });
+  $('prev').addEventListener('click', () => { go(t > 1 ? vid : vid - 1); });
+  $('next').addEventListener('click', () => go(vid + 1));
+  loopBtn.addEventListener('click', () => { repeat = !repeat; loopBtn.setAttribute('aria-pressed', String(repeat)); });
+  document.addEventListener('keydown', (e) => {
+    if (reading) return;
+    if (e.key === ' ' && e.target.closest && e.target.closest('button')) return;
+    if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
+    else if (e.key === 'ArrowRight') go(vid + 1);
+    else if (e.key === 'ArrowLeft') go(vid - 1);
+  });
+
+  /* ---------------- read view ---------------- */
+  document.querySelectorAll('[data-g]').forEach((el) => {
+    el.outerHTML = `<svg class="g" viewBox="-16 -16 32 32" aria-hidden="true">${glyph(el.dataset.g)}</svg>`;
+  });
+  (function seq() {
+    const X = { a: 120, b: 400, s: 680 }, top = 54, RH = 60, rows = 7, H = top + rows * RH + 8;
+    const y = (i) => top + i * RH + RH / 2;
+    const G = (k, x, yy, sc) => `<g transform="translate(${x},${yy}) scale(${sc || 0.8})">${glyph(k)}</g>`;
+    const T = (txt, x, yy, anchor) => `<text class="sq" x="${x}" y="${yy + 4}" text-anchor="${anchor || 'start'}">${txt}</text>`;
+    const O = (c, x, yy) => `<text class="sqo" x="${x}" y="${yy + 6}" text-anchor="middle">${c}</text>`;
+    const N = (n, yy) => `<text class="sqn" x="20" y="${yy + 4}">${n}</text>`;
+    const arrow = (x0, x1, yy, dashed) => {
+      const d = x1 > x0 ? 1 : -1, dash = dashed ? ' stroke-dasharray="5 4"' : '';
+      return `<line x1="${x0}" y1="${yy}" x2="${x1}" y2="${yy}" stroke="var(--ink2)" stroke-width="1.6"${dash}/>` +
+             `<path d="M${x1 - 9 * d} ${yy - 5} L${x1} ${yy} L${x1 - 9 * d} ${yy + 5}" fill="none" stroke="var(--ink2)" stroke-width="1.6"/>`;
+    };
+    let s = `<svg viewBox="0 0 800 ${H}" role="img" aria-label="Seven steps of a PKCE login between the mobile app, the browser and the auth server.">`;
+    [['Mobile app', X.a], ['Browser', X.b], ['Auth server', X.s]].forEach(([n, x]) => {
+      s += `<text class="sqa" x="${x}" y="30" text-anchor="middle">${n}</text>`;
+      s += `<line x1="${x}" y1="42" x2="${x}" y2="${H - 6}" stroke="var(--line)" stroke-width="1.6" stroke-dasharray="2 6"/>`;
+    });
+    let i = 0, yy;
+    yy = y(i++); s += N(1, yy) + G('ver', 100, yy) + O('-&gt;', 128, yy) + G('chal', 156, yy) + T('verifier, then challenge = sha256(verifier)', 184, yy);
+    yy = y(i++); s += N(2, yy) + arrow(140, 660, yy) + G('chal', 280, yy) + T('/authorize with the challenge, via the browser', 470, yy - 16, 'middle');
+    yy = y(i++); s += N(3, yy) + G('chal', 680, yy) + T('user signs in; challenge stored', 650, yy, 'end');
+    yy = y(i++); s += N(4, yy) + arrow(660, 140, yy) + G('code', 400, yy) + T('redirect with a one-time auth code', 400, yy - 18, 'middle');
+    yy = y(i++); s += N(5, yy) + arrow(140, 660, yy, true) + G('code', 300, yy) + O('+', 328, yy) + G('ver', 356, yy) + T('/token, straight to the server', 520, yy - 16, 'middle');
+    yy = y(i++); s += N(6, yy) + G('ver', 612, yy) + O('-&gt;', 640, yy) + G('chal', 668, yy) + O('=', 694, yy) + G('chal', 720, yy) + T('hash matches the stored challenge', 586, yy, 'end');
+    yy = y(i++); s += N(7, yy) + arrow(660, 140, yy, true) + G('tok', 400, yy) + T('access token', 400, yy - 18, 'middle');
+    s += '</svg>';
+    $('seq').innerHTML = s;
+  })();
+  const watchView = $('watchView'), readView = $('readView'), vWatch = $('vWatch'), vRead = $('vRead');
+  let reading = false;
+  function setView(v) {
+    reading = v === 'read';
+    watchView.hidden = reading; readView.hidden = !reading;
+    vWatch.setAttribute('aria-pressed', String(!reading)); vRead.setAttribute('aria-pressed', String(reading));
+    $('argVideo').hidden = reading; $('argRead').hidden = !reading;
+    if (reading) {
+      setPlaying(false);
+      typeTitle('How PKCE protects a mobile login');
+      swapLede('Everything from the videos, written down: the pieces, the flow, the check and the requests.');
+    } else {
+      const v = VIDEOS[vid]; typeTitle(v.title); swapLede(v.lede);
+    }
+    try { history.replaceState(null, '', reading ? '#read' : '#watch'); } catch (e) { /* sandboxed */ }
+  }
+  vWatch.addEventListener('click', () => setView('watch'));
+  vRead.addEventListener('click', () => setView('read'));
+  window.seek = (i, x) => { go(i); t = x; shownStep = -1; draw(); };
+
+  go(0);
+  booted = true;
+  if (location.hash === '#read') setView('read'); else setPlaying(true);
+  requestAnimationFrame(tick);
+})();
+</script>

@@ -1,0 +1,23 @@
+{
+  "skill_name": "animated-system-explainer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "our app uses OAuth with PKCE: the iOS app opens the browser to our auth server, gets a code back, swaps it for tokens at the token endpoint, and refresh tokens are rotated on every use. make me a shareable artifact for the mobile team that shows how this works, videos + a readable version",
+      "expected_output": "Single-file HTML artifact with 4-6 videos (actors: iOS app, browser, auth server, API), step captions, legend for verifier/challenge/code/tokens, and a read tab with a sequence diagram and Q&A.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "can you visualise our OTA update flow for the team? the phone downloads firmware.bin from S3, sends it to the watch over BLE in 240 byte chunks with a CRC per chunk, the watch writes to the second slot, the bootloader verifies the signature on reboot and swaps slots, and rolls back if the new image doesn't confirm within 60 s. keep the text short",
+      "expected_output": "Animated explainer with videos for download, chunked transfer, verify and swap, and rollback; minimal captions; read tab with the steps written out.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Turn this into something I can send to the backend team: a webhook from Stripe hits our API gateway, gets verified with the signing secret, is pushed to a queue, a worker updates the subscription in Postgres and emails the user. I want to show what happens on a duplicate delivery and on a bad signature too.",
+      "expected_output": "Explainer with actors Stripe, gateway, queue/worker, database; videos for the happy path, duplicate delivery (idempotency key), and bad signature (rejected); read tab with a 'what each part checks' table.",
+      "files": []
+    }
+  ]
+}
