@@ -12,9 +12,10 @@ Codex, Cursor, GitHub Copilot, Gemini CLI, Windsurf, OpenCode and Amp. It also
 works with agents that don't: point them at `SKILL.md`.
 
 Ask your agent something like *"make a page for the team that shows how our
-OAuth login works"* or *"visualise our OTA update flow"*. It explains the design
-back to you, storyboards it, builds the page and screenshots every step to
-check it.
+OAuth login works"* or *"visualise our OTA update flow"*. It reads the code if
+it's there, explains the design back to you, storyboards it, scaffolds the page
+from the storyboard, animates it, and checks every step in a headless browser
+for overlaps, clipped labels and state leaking between videos.
 
 ## What the page looks like
 
@@ -89,18 +90,31 @@ pip install playwright && python -m playwright install chromium
 
 | Path | What it is |
 |---|---|
-| `SKILL.md` | The workflow the agent follows: understand the design first, keep the watch view minimal, build from the example, check every step, deliver, iterate. |
-| `references/engine.md` | Which parts of the example are reusable engine and which are content; data formats, animation helpers, pitfalls. |
-| `assets/example-pkce-login.src.html` | Editable source of the example. Every frame is a pure function of time, so seeking and step markers always land on the right frame. |
-| `scripts/build.py` | Builds the publishable file: embeds images, makes the page pure ASCII, adds a charset tag, syntax-checks the scripts. |
-| `scripts/check.py` | Serves the page and checks it in a headless browser. It reports script errors and sideways scroll at phone width, and saves one screenshot per step plus the read tab. |
+| `SKILL.md` | The workflow the agent follows: understand the design first (from the code when it's there), storyboard it, keep the watch view minimal, scaffold, animate, check every step, deliver, iterate. |
+| `references/engine.md` | Which parts of the example are reusable engine and which are content; data formats, animation helpers, what the scaffold generates, pitfalls. |
+| `assets/example-pkce-login.src.html` | Editable source of the example, and the engine every new page is built on. Every frame is a pure function of time, so seeking and step markers always land on the right frame. |
+| `assets/storyboard-example.json` | An example storyboard (Stripe webhooks, four actors) showing the format `scaffold.py` reads. |
+| `scripts/scaffold.py` | Turns a storyboard into a working source page: 2-4 actors on the stage, legend, paced videos, placeholder motion, a read tab with a sequence diagram, and TODOs for the rest. |
+| `scripts/build.py` | Builds the publishable file: embeds images, makes the page pure ASCII, adds a charset tag, syntax-checks the scripts, lists TODOs left. |
+| `scripts/check.py` | Serves the page and checks every step in a headless browser: script errors, sideways scroll on phones, overlapping or clipped labels, objects `reset()` misses, unknown keys, pacing. Saves a contact sheet of all steps plus one screenshot per step and the read tab. |
 | `examples/pkce-login.html` | The built example. |
 | `evals/evals.json` | Test prompts for evaluating the skill. |
 
 By hand:
 
 ```bash
+python3 scripts/scaffold.py --example > storyboard.json
+```
+
+```bash
+python3 scripts/scaffold.py storyboard.json my-explainer.src.html
+```
+
+```bash
 python3 scripts/build.py my-explainer.src.html my-explainer.html --img device=photo.png
+```
+
+```bash
 python3 scripts/check.py my-explainer.html --out shots/
 ```
 

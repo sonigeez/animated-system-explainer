@@ -661,7 +661,9 @@ h1 .cur{display:inline-block;width:.55em;height:1em;margin-left:.08em;vertical-a
   window.seek = (i, x) => { go(i); t = x; shownStep = -1; draw(); };
   /* Control API for agents and test scripts: list videos, pause, jump to any frame, switch tabs. */
   window.explainer = {
-    videos: VIDEOS.map((v) => ({ tab: v.tab, title: v.title, duration: v.D, steps: v.steps.map((st) => ({ start: st[0], label: st[1], text: st[2] })) })),
+    videos: VIDEOS.map((v) => ({ tab: v.tab, title: v.title, duration: v.D, lit: v.lit,
+      steps: v.steps.map((st) => ({ start: st[0], label: st[1], text: st[2], formula: st[3] || null })) })),
+    keys: Object.keys(KEYS),
     pause: () => setPlaying(false),
     seek: (i, x) => { setPlaying(false); if (reading) setView('watch'); window.seek(i, x); },
     view: (v) => setView(v)

@@ -12,7 +12,8 @@ What it does, in order:
      inside <style>, and &#N; entities everywhere else. A <meta charset> is
      added at the top as a second guard.
   3. Syntax-checks every inline <script> with `node --check` when node exists.
-  4. Writes the output and prints its size.
+  4. Warns about lines that still say TODO (scaffold.py leaves them).
+  5. Writes the output and prints its size.
 
 usage:
   build.py SRC.html OUT.html [--img device=photo.png ...] [--max-px 400]
@@ -106,6 +107,14 @@ def main():
     left = sorted(set(re.findall(r'__IMG:([A-Za-z0-9_-]+)__', html)))
     if left:
         sys.exit('unfilled image placeholders: ' + ', '.join(left) + ' (pass --img NAME=PATH)')
+
+    todos = [(n, line.strip()) for n, line in enumerate(html.splitlines(), 1) if 'TODO' in line]
+    if todos:
+        print(f'warning: {len(todos)} line(s) still say TODO (left by scaffold.py); clear them before sharing:')
+        for n, line in todos[:5]:
+            print(f'  line {n}: {line[:100]}')
+        if len(todos) > 5:
+            print(f'  ... and {len(todos) - 5} more')
 
     if not re.search(r'<meta\s+charset', html[:2000], re.I):
         html = '<meta charset="utf-8">\n' + html

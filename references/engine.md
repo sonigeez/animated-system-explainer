@@ -1,8 +1,10 @@
 # Engine reference: `assets/example-pkce-login.src.html`
 
 The example is a complete, working explainer of an OAuth PKCE login (mobile
-app, browser, auth server; four videos plus a read tab). Copy it and replace
-the **content**; keep the **engine**. Line numbers are approximate.
+app, browser, auth server; four videos plus a read tab). `scripts/scaffold.py`
+starts new pages from it: it keeps the **engine** and generates the
+**content** from a storyboard (section 10). To start from the example by hand,
+copy it and replace the content. Line numbers are approximate.
 
 ## Contents
 1. File map: engine vs content
@@ -14,6 +16,7 @@ the **content**; keep the **engine**. Line numbers are approximate.
 7. Player behaviour you get for free
 8. Theming and images
 9. Pitfalls already hit
+10. What scaffold.py generates
 
 ## 1. File map
 
@@ -95,7 +98,7 @@ Two caption slots are usually enough: switch the text by time range
 1. Add any new static object to the stage SVG with `opacity="0"` and an id; add
    the id to the `E` list; hide it in `reset()`. New moving keys go in `K`.
 2. Add the entry to `VIDEOS` and the scene function to `SCENES` at the same
-   index. Update the `--video 01/NN` count in the header.
+   index. The `--video 01/NN` count in the header updates itself.
 3. Lay the scene out as overlapping time windows: appear, move, hold, combine,
    leave. Fade with `seg(t, a, a+0.15)`, pop with `spring(seg(t, a, a+0.6))`.
 4. To slow one video down without retiming every number, wrap its clock:
@@ -126,9 +129,11 @@ keys (ignored on the read tab); typewriter title; `#read` / `#watch` deep
 links; reduced-motion still frames; hex rain paused under reduced motion.
 
 `window.explainer` is the control API that `scripts/check.py` and any browser
-tool can use: `videos` (tabs, durations, step starts and labels), `pause()`,
+tool can use: `videos` (tabs, titles, durations, `lit`, and steps with start,
+label, text and formula), `keys` (the `KEYS` ids), `pause()`,
 `seek(videoIndex, seconds)` (pauses, switches to the watch tab, renders that
-frame) and `view('watch' | 'read')`. Keep it when you edit the engine.
+frame) and `view('watch' | 'read')`. Keep it when you edit the engine:
+`check.py` needs `keys`, `lit` and `formula` for its key checks.
 
 ## 8. Theming and images
 
@@ -154,3 +159,40 @@ previews) block external images, so embed them.
   stop and give each step at least about 1.5 s.
 - **Previewing.** Many browser tools cannot screenshot `file://`. Use
   `scripts/check.py`, which serves the folder and drives `window.explainer`.
+- **Leaks between videos.** An object a scene shows but `reset()` does not hide
+  appears in every video that plays after it. `check.py` replays all frames in
+  reverse order and names the object.
+- **Typos in formula rows.** An unknown key id in a formula renders as a
+  truncated word (`'cod'` shows as `d`). `check.py` fails on it.
+
+`check.py` catches overlaps, clipping, leaks and key typos automatically; it
+cannot tell whether a frame shows what its caption says. Look at
+`contact-sheet.png` for that.
+
+## 10. What scaffold.py generates
+
+`scaffold.py storyboard.json out.src.html` keeps everything marked "keep" in
+section 1 and generates the rest:
+
+- **Stage.** Actors at x = 200/600 (2 actors), 120/400/680 (3) or
+  100/300/500/700 (4), each a 96 x 104 box (y = 62-166) with its label on
+  y = 204 and an optional `sub` text inside. Lanes `lane1..` join neighbours on
+  y = 244, with optional labels on y = 236.
+- **Keys.** `KEYS` colours follow the owner actor: `--otk`, `--key`, `--seal`,
+  then `--p4` (added to `:root`). `HOME[k]` puts each key beside its owner
+  (x + 62, stacked from y = 60); `OWNER[k]` is the owner's index.
+- **Timing.** A step lasts 2 s; a `move` step lasts longer when it crosses
+  several lanes. `D` is the sum plus 0.2 s.
+- **Placeholder motion.** `hop(t, key, from, to, start, dx, shown)` sends a key
+  down to the lane, along it and up into the target actor;
+  `pop(t, key, start)` springs a key in at its home; `crossing(...)` lights the
+  lanes it travels on. Each scene calls them under `if (t >= start)` guards, in
+  step order, so a later step takes over a key from an earlier one. Replace
+  them with real motion.
+- **`lanes(...)`** takes one boolean per lane, in order.
+- **Read tab.** A piece table from `KEYS`, the steps as a list, a Q&A slot, and
+  a data-driven `seq()`: rows are `{ move: [key, from, to], text }`,
+  `{ at: actor, keys: [...], text }` or `{ text }`. Same helpers as the
+  example's hand-written `seq()`; rewrite the rows into the real sequence.
+- **TODO markers** wherever a decision is left. `build.py` lists the remaining
+  ones.

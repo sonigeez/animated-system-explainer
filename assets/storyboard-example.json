@@ -1,0 +1,53 @@
+{
+  "title": "Stripe webhooks, end to end",
+  "slug": "billing",
+  "actors": [
+    {"name": "Stripe", "sub": "sender"},
+    {"name": "API gateway", "sub": "verify"},
+    {"name": "Worker", "sub": "queue"},
+    {"name": "Postgres", "sub": "db"}
+  ],
+  "lanes": ["https", "queue", "sql"],
+  "keys": {
+    "evt":  {"name": "event", "owner": "Stripe"},
+    "sig":  {"name": "signature", "owner": "Stripe"},
+    "sec":  {"name": "signing secret", "owner": "API gateway", "secret": true},
+    "eid":  {"name": "event id", "owner": "Worker"},
+    "row":  {"name": "subscription row", "owner": "Postgres", "square": true}
+  },
+  "videos": [
+    {"tab": "deliver", "title": "Stripe signs every event it sends",
+     "lede": "The signature is an HMAC of the body with a secret only Stripe and the gateway hold.",
+     "steps": [
+       {"label": "sign", "text": "Stripe signs the event body with the shared secret", "formula": ["evt", "->", "t:hmac", "->", "sig"]},
+       {"label": "send", "text": "the event and its signature go to the gateway", "move": {"keys": ["evt", "sig"], "from": "Stripe", "to": "API gateway"}},
+       {"label": "verify", "text": "the gateway recomputes the signature and compares", "formula": ["sec", "+", "evt", "=", "sig"]}
+     ]},
+    {"tab": "process", "title": "The worker applies the event once",
+     "lede": "The gateway answers fast and queues the work; the worker updates the database.",
+     "steps": [
+       {"label": "queue", "text": "the gateway queues the event and answers 200", "move": {"key": "evt", "from": "API gateway", "to": "Worker"}},
+       {"label": "update", "text": "the worker writes the new subscription state", "move": {"key": "evt", "from": "Worker", "to": "Postgres"}},
+       {"label": "saved", "text": "the subscription row is updated", "formula": ["row"]}
+     ]},
+    {"tab": "duplicate", "title": "A retried event changes nothing",
+     "lede": "Stripe retries on timeouts, so the same event can arrive twice. The event id makes the second one a no-op.",
+     "steps": [
+       {"label": "again", "text": "Stripe retries: the same event arrives again", "move": {"key": "evt", "from": "Stripe", "to": "Worker"}},
+       {"label": "lookup", "text": "the worker looks the event id up in Postgres", "move": {"key": "eid", "from": "Worker", "to": "Postgres"}},
+       {"label": "skip", "text": "seen before: skip it, still answer 200", "formula": ["eid", "=", "t:already processed"]}
+     ]},
+    {"tab": "forged", "title": "A forged event is turned away",
+     "lede": "Without the secret nobody can produce a matching signature.",
+     "steps": [
+       {"label": "forge", "text": "someone posts a fake event with a made-up signature", "move": {"keys": ["evt", "sig"], "from": "Stripe", "to": "API gateway"}},
+       {"label": "check", "text": "the recomputed signature does not match", "formula": ["sec", "+", "evt", "=", "x:no match"]},
+       {"label": "reject", "text": "rejected with 400; nothing is queued", "formula": ["x:[x] 400 bad signature"]}
+     ]}
+  ],
+  "read": {
+    "title": "How our Stripe webhooks stay safe and exact",
+    "lede": "Everything from the videos, written down: the pieces, the flow and what each part checks.",
+    "big": "Every webhook is signed by Stripe, checked at the gateway and applied once by the worker, however often it arrives."
+  }
+}

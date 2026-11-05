@@ -20,13 +20,17 @@ Produces one self-contained HTML page that teaches a system design in two ways:
 
 The working reference is `assets/example-pkce-login.src.html` (an OAuth PKCE login).
 `references/engine.md` maps which parts of it are reusable engine and which are
-content. Read it before editing the example.
+content. Read it before editing a page. `scripts/scaffold.py` turns a storyboard
+into a new page built on the same engine, so you rarely edit the example itself.
 
 ## Workflow
 
 ### 1. Understand the design before drawing it
 
-The animation is only as clear as your own model of the system. If the flow is
+The animation is only as clear as your own model of the system. If the code
+or docs for the system are in the workspace, read them first: take the actor
+names, endpoints, message names and the order of calls from the code, not only
+from the user's summary, and say where they disagree. If the flow is
 not already settled in the conversation, explain it in chat first in plain
 words: who holds what, what moves where, and the one or two "aha" moments (for
 example: two parties compute the same hash at different times, or two sides
@@ -44,27 +48,57 @@ Settle these before writing code:
 - **Storyboard**: one video per phase (set up, create, transfer, open, failure
   or attack, consume). For each, list the steps and the formula row.
 
+Show the storyboard to the user as a short table before writing any page, and
+let them correct it:
+
+| video | step | caption (one line) | formula row | what moves |
+|---|---|---|---|---|
+| deliver | sign | Stripe signs the event body with the shared secret | event -> hmac -> signature | - |
+| deliver | send | the event and its signature go to the gateway | event + signature | event, signature: Stripe -> gateway |
+
+Then write the same storyboard as JSON for `scaffold.py`. The format is in
+`assets/storyboard-example.json`: `actors` (2-4, left to right), `keys` (id,
+name, owner actor, `secret`, `square`), `videos` with `steps` (`label`, `text`,
+optional `formula`, optional `move: {key or keys, from, to}`), and an optional
+`read` block.
+
 ### 2. Keep the watch view minimal
 
 The audience is a team skimming a link. Show the high-level design only: short
 captions, no bench history, no bug write-ups, no internal file paths or
 command names unless the audience needs them. Put depth in the read tab.
 
-### 3. Build from the example
-
-1. Copy `assets/example-pkce-login.src.html` to the working directory.
-2. Replace the content parts listed in `references/engine.md` (title, stage
-   SVG, `KEYS`, `VIDEOS`, `SCENES`, `reset()`, read article, `seq()` rows).
-   Keep the engine: player, timeline model, rain, view switch.
-3. For a real product, use its photo on the stage with an `__IMG:<name>__`
-   placeholder (`<image href="__IMG:device__" .../>`, see engine.md section 8).
-4. Pace generously: holds of 0.4-0.8 s at each stop, about 1.5 s or more per
-   step. To slow one video, scale its clock (see engine.md section 5).
-
-### 4. Build, check, deliver
+### 3. Scaffold, then make it real
 
 `<skill-dir>` is wherever this skill is installed (the folder holding this
 file).
+
+```bash
+python3 <skill-dir>/scripts/scaffold.py storyboard.json topic.src.html
+```
+
+This writes a page that already works: the actors on the stage, the legend,
+every video and step with paced times, placeholder motion (a step with `move`
+sends its keys along the lanes, a formula-only step pops its keys in beside
+their owner), and a read tab with a piece table and a sequence diagram. It
+builds and passes `check.py` as it is. What it cannot know is marked `TODO`.
+
+1. Replace the placeholder motion in `SCENES` with the real story: combines,
+   flashes, notes, failures, holds (engine.md sections 4 and 5). Delete the
+   `hop`/`pop` helpers when nothing uses them.
+2. Draw the actors' real shapes, or put in a product photo with an
+   `__IMG:<name>__` placeholder (engine.md section 8).
+3. Fill the read tab: rewrite the sequence rows into the true call sequence,
+   fill the piece table, add the comparisons and Q&A this audience needs.
+4. Clear every `TODO`; `build.py` lists the ones left.
+5. Pace generously: holds of 0.4-0.8 s at each stop, about 1.5 s or more per
+   step. To slow one video, scale its clock (see engine.md section 5).
+
+To start from the finished PKCE page instead (for example a similar auth
+flow), copy `assets/example-pkce-login.src.html` and replace the content parts
+listed in engine.md section 1.
+
+### 4. Build, check, deliver
 
 ```bash
 python3 <skill-dir>/scripts/build.py src.html out.html --img device=/path/to/photo.png
@@ -76,10 +110,22 @@ python3 <skill-dir>/scripts/check.py out.html --out shots/
 adds a charset meta and syntax-checks the scripts with node when available.
 
 `check.py` serves the page on a local port and, with Playwright for Python
-installed, fails on script errors or sideways scrolling at phone width, and
-saves a screenshot of the settled frame of every step plus the read tab. Look
-at a few of the images (the combine and failure steps first) and fix overlaps
-before delivering. Without Playwright it prints a local URL; use whatever
+installed, renders the settled frame of every step and fails on:
+
+- script or console errors, and sideways scrolling at phone width;
+- labels that overlap each other or stick out of the stage or a read-tab
+  diagram;
+- objects that `reset()` does not put back: it plays every frame a second time
+  in reverse order and names any object that looks different;
+- formula items or `lit` entries that name a key not in `KEYS`, and step times
+  out of order.
+
+It warns, without failing, about captions that wrap at desktop width, steps
+on screen under 1.2 s, and video, step and duration counts outside the ranges
+above. It saves `contact-sheet.png` (every step in one image, one row per
+video, problem frames outlined in red), one image per step and the read tab.
+Fix every problem, then open the contact sheet and check that each frame says
+what its caption says before delivering. Without Playwright it prints a local URL; use whatever
 browser tool you have, or ask the user to open it. In any browser console,
 `explainer.videos`, `explainer.seek(videoIndex, seconds)` and
 `explainer.view('read')` drive the page. Browsers and many agent tools cannot
@@ -105,14 +151,17 @@ Typical requests and what to do:
 - "Not understandable": go back to step 1, explain in chat, then add the
   missing moments as explicit steps with formula rows.
 - "Moves too fast": scale that video's clock.
+- "Add a step" or "reorder these": edit `VIDEOS` and the scene by hand;
+  rerun `scaffold.py` only for a fresh start, as it overwrites your edits.
 - "Weird symbols": rebuild with `build.py`; prefer `->`, `[x]`, `[ok]` in copy.
 - "Make X clickable": the step diamonds already seek; follow that pattern.
 - "Add how Y works": add one video and one read section with its own sequence
   diagram, using the same key glyphs.
 
-When asked for "the HTML", send the built file, and save the source and the
-build next to the project, for example `docs/<topic>.src.html` and
-`docs/<topic>.html`, so later edits start from the source.
+When asked for "the HTML", send the built file, and save the storyboard, the
+source and the build next to the project, for example
+`docs/<topic>.storyboard.json`, `docs/<topic>.src.html` and `docs/<topic>.html`,
+so later edits start from the source.
 
 ## Design defaults
 
